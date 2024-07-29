@@ -1,0 +1,103 @@
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
+import org.jsoup.nodes.Element;
+import org.jsoup.select.Elements;
+
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.net.Proxy;
+import java.net.SocketTimeoutException;
+import java.util.HashSet;
+import java.util.LinkedList;
+import java.util.Queue;
+import java.util.Scanner;
+import java.util.Set;
+
+public class WikiScraper {
+
+	private static final int MAX_RETRIES = 3; // Maximum retry
+    private static final int TIMEOUT = 10000; 
+
+
+    public static void main(String[] args) {
+    	
+        String proxyHost = "127.0.0.1"; 
+        int proxyPort = 1080; 
+        Proxy proxy = new Proxy(Proxy.Type.SOCKS, new InetSocketAddress(proxyHost, proxyPort));
+        
+        Scanner input = new Scanner(System.in);
+        System.out.print("Enter the link: ");
+        String wikiLink = input.nextLine().trim(); // "https://en.wikipedia.org/wiki/Web_scraping";
+        System.out.print("Enter n: ");
+		int n = input.nextInt(); 
+
+		if (!isValidWikiLink(wikiLink)) {
+		    throw new IllegalArgumentException("Invalid Wikipedia link");
+		}
+
+		if (n < 1 || n > 3) {
+		    throw new IllegalArgumentException("n must be between 1 and 3");
+		}
+
+		Set<String> visitedLinks = new HashSet<>();
+        Queue<String> linksToVisit = new LinkedList<>(); 
+
+        linksToVisit.add(wikiLink); 
+
+        for (int i = 0; i < n; i++) {
+            int linksToProcess = linksToVisit.size();
+            for (int j = 0; j < linksToProcess; j++) {
+                String currentLink = linksToVisit.poll();
+                if (currentLink != null && !visitedLinks.contains(currentLink)) {
+                    visitedLinks.add(currentLink); 
+                    System.out.println("Scraping: " + currentLink);
+                    Set<String> newLinks = scrapeWikiLinks(currentLink, proxy);
+                    for (String link : newLinks) {
+                        if (visitedLinks.size() >= 10) break;
+                        linksToVisit.add(link); 
+                    }
+                }
+            }
+            if (visitedLinks.size() >= 10) break; // stop the loop at 10
+        }
+
+        System.out.println("Visited links:");
+        visitedLinks.forEach(System.out::println);
+    }
+
+    // verify if wiki link is valid
+    private static boolean isValidWikiLink(String url) {
+        return url != null && url.startsWith("https://en.wikipedia.org/wiki/");
+    }
+
+    // fetch link
+    private static Set<String> scrapeWikiLinks(String url, Proxy proxy) {
+        Set<String> links = new HashSet<>();
+        int attempts = 0;
+
+        while (attempts < MAX_RETRIES) {
+            try {
+//            	Document doc = Jsoup.connect(url).proxy(proxy).timeout(TIMEOUT).get();
+            	Document doc = Jsoup.connect(url).timeout(TIMEOUT).get();
+                Elements elements = doc.select("a[href^=/wiki/]"); 
+                for (Element element : elements) {
+                    if (links.size() >= 10) break;
+                    String link = element.attr("href");
+                    // get rid off links include":"or"#"
+                    if (!link.contains(":") && !link.contains("#")) {
+                        links.add("https://en.wikipedia.org" + link);
+                    }
+                }
+                break; // Exit loop if successful
+            } catch (SocketTimeoutException e) {
+                System.out.println("Timeout reached for URL: " + url + " - Retrying... (" + (attempts + 1) + "/" + MAX_RETRIES + ")");
+            } catch (IOException e) {
+                System.out.println("Error accessing URL: " + url + " - " + e.getMessage());
+                break; // Exit loop on other IOExceptions
+            }
+            attempts++;
+        }
+
+        return links;
+    }
+}
